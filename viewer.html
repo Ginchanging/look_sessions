@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 对话阅读器</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #1a1a1a;
+  background: #f0f2f5;
+  min-height: 100vh;
+}
+
+/* ── 顶部信息栏 ── */
+#header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e0e0e0;
+  padding: 10px 24px;
+  display: none;
+  align-items: center;
+  gap: 12px;
+}
+#header-title {
+  font-weight: 600;
+  font-size: 15px;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#header-meta {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+}
+#header-reset {
+  background: none;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #555;
+  white-space: nowrap;
+}
+#header-reset:hover { background: #f5f5f5; }
+
+/* ── 拖拽区 ── */
+#dropzone-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px;
+}
+#dropzone {
+  border: 2px dashed #b0b8c4;
+  border-radius: 16px;
+  background: #fff;
+  padding: 60px 80px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  max-width: 480px;
+  width: 100%;
+}
+#dropzone.dragover { border-color: #4a90e2; background: #f0f6ff; }
+#dropzone h2 { font-size: 18px; color: #333; margin-bottom: 8px; }
+#dropzone p { color: #888; font-size: 13px; margin-bottom: 20px; }
+#file-input { display: none; }
+#dropzone label {
+  display: inline-block;
+  background: #4a90e2;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#dropzone label:hover { background: #357abd; }
+#drop-hint { font-size: 12px; color: #aaa; margin-top: 12px; }
+
+/* ── 对话区 ── */
+#chat-container {
+  display: none;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+/* ── 消息气泡 ── */
+.turn { display: flex; margin: 16px 0; gap: 0; }
+
+.turn-user { justify-content: flex-end; }
+.turn-assistant { justify-content: flex-start; }
+
+.bubble {
+  max-width: 82%;
+  padding: 12px 16px;
+  border-radius: 18px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+.turn-user .bubble {
+  background: #dbeafe;
+  border-radius: 18px 18px 4px 18px;
+  color: #1e3a5f;
+}
+.turn-assistant .bubble {
+  background: #fff;
+  border-radius: 18px 18px 18px 4px;
+  border: 1px solid #e4e7eb;
+  color: #1a1a1a;
+}
+
+/* ── 气泡元信息 ── */
+.turn-meta {
+  font-size: 11px;
+  color: #aaa;
+  margin-bottom: 5px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.turn-meta .model-tag {
+  background: #f0f0f0;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  color: #666;
+}
+
+/* ── Markdown 渲染 ── */
+.md-body { line-height: 1.7; }
+.md-body p { margin: 0 0 10px; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2 { font-size: 16px; font-weight: 700; margin: 14px 0 6px; }
+.md-body h3 { font-size: 14px; font-weight: 600; margin: 12px 0 4px; }
+.md-body h4 { font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+.md-body ul, .md-body ol { padding-left: 20px; margin: 6px 0 10px; }
+.md-body li { margin: 2px 0; }
+.md-body code {
+  background: rgba(0,0,0,0.07);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+}
+.md-body pre {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.md-body pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.md-body strong { font-weight: 600; }
+.md-body em { font-style: italic; }
+.md-body hr { border: none; border-top: 1px solid #e0e0e0; margin: 14px 0; }
+.md-body blockquote {
+  border-left: 3px solid #d0d0d0;
+  padding-left: 12px;
+  color: #666;
+  margin: 8px 0;
+}
+.md-body a { color: #4a90e2; text-decoration: none; }
+.md-body a:hover { text-decoration: underline; }
+.md-body table { border-collapse: collapse; font-size: 13px; margin: 10px 0; max-width: 100%; }
+.md-body th, .md-body td { border: 1px solid #ddd; padding: 6px 10px; }
+.md-body th { background: #f5f5f5; font-weight: 600; }
+
+/* ── 折叠组件 ── */
+.collapsible { margin: 8px 0; border-radius: 8px; overflow: hidden; border: 1px solid #e8eaed; }
+.collapsible-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  background: #f8f9fa;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12.5px;
+  color: #555;
+  transition: background 0.15s;
+}
+.collapsible-header:hover { background: #eff1f3; }
+.collapsible-icon { font-size: 11px; color: #999; transition: transform 0.2s; flex-shrink: 0; }
+.collapsible.open .collapsible-icon { transform: rotate(90deg); }
+.collapsible-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.collapsible-body {
+  display: none;
+  padding: 10px 14px;
+  background: #fff;
+  font-size: 13px;
+  max-height: 480px;
+  overflow-y: auto;
+  border-top: 1px solid #e8eaed;
+}
+.collapsible.open .collapsible-body { display: block; }
+.collapsible-body pre {
+  background: #1e1e2e;
+  color: #cdd6f4;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: 'Menlo', monospace;
+  margin: 0;
+}
+.tool-result {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+  color: #444;
+  font-size: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.tool-result-label { font-size: 11px; color: #999; margin-bottom: 4px; }
+
+/* ── Reasoning recap ── */
+.recap-tag {
+  display: inline-block;
+  font-size: 11px;
+  color: #999;
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin: 4px 0;
+}
+
+/* ── Token 用量 ── */
+.usage-bar {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
+  font-size: 11px;
+  color: #bbb;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.usage-item b { color: #999; }
+
+/* ── 加载/错误 ── */
+#loading {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.8);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 14px;
+  color: #666;
+}
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid #e0e0e0;
+  border-top-color: #4a90e2;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#error-banner {
+  display: none;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px;
+  font-size: 13px;
+  color: #856404;
+}
+
+/* ── 进度提示 ── */
+#render-progress {
+  display: none;
+  font-size: 12px;
+  color: #aaa;
+  text-align: center;
+  padding: 8px;
+}
+</style>
+</head>
+<body>
+
+<div id="header">
+  <span id="header-title"></span>
+  <span id="header-meta"></span>
+  <button id="header-reset">换一个文件</button>
+</div>
+
+<div id="dropzone-wrapper">
+  <div id="dropzone">
+    <h2>AI 对话阅读器</h2>
+    <p>支持 ChatGPT 导出的 .json、Claude Code 会话的 .jsonl、Codex 的 rollout*.jsonl</p>
+    <label for="file-input">选择文件</label>
+    <input type="file" id="file-input" accept=".json,.jsonl">
+    <p id="drop-hint">或将文件拖拽到此处</p>
+  </div>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <span id="loading-text">解析文件中…</span>
+</div>
+
+<div id="error-banner"></div>
+
+<div id="chat-container">
+  <div id="render-progress"></div>
+</div>
+
+<script>
+'use strict';
+
+// ── 工具函数 ──────────────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatTimestamp(ts) {
+  if (!ts) return '';
+  try {
+    const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('zh-CN', {
+      month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+  } catch { return ''; }
+}
+
+function fmtNum(n) {
+  if (n === undefined || n === null || n === 0) return null;
+  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+}
+
+// ── 格式检测 ──────────────────────────────────────────────────────────────
+
+function detectFormat(content, fileName) {
+  const base = fileName.split('/').pop().toLowerCase();
+  const ext = base.split('.').pop();
+
+  // Codex rollout 文件：文件名以 rollout 开头
+  if (base.startsWith('rollout')) return 'codex';
+
+  if (ext === 'json') {
+    try {
+      const obj = JSON.parse(content);
+      if (obj && obj.mapping && obj.conversation_id) return 'chatgpt';
+    } catch {}
+  }
+
+  if (ext === 'jsonl') {
+    // 内容嗅探区分 codex vs claude
+    const firstLine = content.trim().split('\n')[0];
+    try {
+      const first = JSON.parse(firstLine);
+      if (first && first.payload !== undefined &&
+          (first.type === 'response_item' || first.type === 'event_msg' || first.type === 'session_meta')) {
+        return 'codex';
+      }
+      if (first && first.sessionId && first.type) return 'claude';
+    } catch {}
+    return 'claude';
+  }
+
+  // 兜底内容嗅探
+  const firstLine = content.trim().split('\n')[0];
+  try {
+    const first = JSON.parse(firstLine);
+    if (first && first.sessionId && first.type) return 'claude';
+  } catch {}
+  try {
+    const obj = JSON.parse(content);
+    if (obj && obj.mapping) return 'chatgpt';
+  } catch {}
+  throw new Error('未能识别文件格式，请选择 ChatGPT 的 .json、Claude Code 的 .jsonl 或 Codex 的 rollout*.jsonl 文件');
+}
+
+// ── 轻量 Markdown 渲染器 ──────────────────────────────────────────────────
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  const codes = [];
+
+  // 1. 提取围栏代码块
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const idx = codes.length;
+    codes.push({ lang: lang || '', code });
+    return `\x00CODE${idx}\x00`;
+  });
+
+  // 2. 转义 HTML（在代码块提取之后）
+  text = escapeHtml(text);
+
+  // 3. 标题
+  text = text.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // 4. 水平线
+  text = text.replace(/^---+$/gm, '<hr>');
+
+  // 5. 粗体 & 斜体
+  text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  text = text.replace(/_(.+?)_/g, '<em>$1</em>');
+
+  // 6. 行内代码
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+  // 7. 链接
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // 8. 引用块
+  text = text.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // 9. 无序列表
+  text = text.replace(/((?:^[ \t]*[-*+] .+\n?)+)/gm, (block) => {
+    const items = block.trim().split('\n').map(l => {
+      const m = l.match(/^[ \t]*[-*+] (.+)/);
+      return m ? `<li>${m[1]}</li>` : '';
+    }).join('');
+    return `<ul>${items}</ul>`;
+  });
+
+  // 10. 有序列表
+  text = text.replace(/((?:^[ \t]*\d+\. .+\n?)+)/gm, (block) => {
+    const items = block.trim().split('\n').map(l => {
+      const m = l.match(/^[ \t]*\d+\. (.+)/);
+      return m ? `<li>${m[1]}</li>` : '';
+    }).join('');
+    return `<ol>${items}</ol>`;
+  });
+
+  // 11. 表格
+  text = text.replace(/((?:^\|.+\|\n?)+)/gm, (block) => {
+    const rows = block.trim().split('\n');
+    if (rows.length < 2) return block;
+    const makeRow = (row, tag) => {
+      const cells = row.split('|').filter((_, i, a) => i > 0 && i < a.length - 1);
+      return '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+    };
+    const header = makeRow(rows[0], 'th');
+    const body = rows.slice(2).map(r => makeRow(r, 'td')).join('');
+    return `<table><thead>${header}</thead><tbody>${body}</tbody></table>`;
+  });
+
+  // 12. 段落 & 换行
+  const parts = text.split(/\n{2,}/);
+  text = parts.map(p => {
+    p = p.trim();
+    if (!p) return '';
+    if (/^<(h[1-4]|ul|ol|li|table|blockquote|hr)/.test(p)) return p;
+    if (p.includes('\x00CODE')) return p;
+    return `<p>${p.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+
+  // 13. 还原代码块
+  text = text.replace(/\x00CODE(\d+)\x00/g, (_, idx) => {
+    const { lang, code } = codes[+idx];
+    return `<pre><code>${escapeHtml(code)}</code></pre>`;
+  });
+
+  return text;
+}
+
+// ── DOM 辅助 ─────────────────────────────────────────────────────────────
+
+function makeCollapsible(icon, label, bodyHtml, open = false) {
+  const el = document.createElement('div');
+  el.className = 'collapsible' + (open ? ' open' : '');
+  el.innerHTML = `
+    <div class="collapsible-header">
+      <span class="collapsible-icon">▶</span>
+      <span style="flex-shrink:0">${escapeHtml(icon)}</span>
+      <span class="collapsible-label">${escapeHtml(label)}</span>
+    </div>
+    <div class="collapsible-body">${bodyHtml}</div>
+  `;
+  el.querySelector('.collapsible-header').addEventListener('click', () => el.classList.toggle('open'));
+  return el;
+}
+
+function getToolSummary(name, input) {
+  if (!input) return '';
+  const MAX = 90;
+  let s = '';
+  if (name === 'Bash') s = input.command || '';
+  else if (name === 'Read') s = input.file_path || '';
+  else if (name === 'Write' || name === 'Edit') s = input.file_path || '';
+  else if (name === 'WebFetch' || name === 'WebSearch') s = input.url || input.query || '';
+  else if (name === 'Agent') s = input.description || (input.prompt || '').slice(0, 60);
+  else {
+    const vals = Object.values(input).filter(v => typeof v === 'string');
+    s = vals[0] || '';
+  }
+  return s.length > MAX ? s.slice(0, MAX) + '…' : s;
+}
+
+// ── ChatGPT 解析器 ────────────────────────────────────────────────────────
+
+function parseChatGPT(jsonData) {
+  const mapping = jsonData.mapping || {};
+  const title = jsonData.title || '对话';
+  const model = jsonData.default_model_slug || '';
+  const date = jsonData.create_time ? formatTimestamp(jsonData.create_time) : '';
+
+  // 找根节点（parent 为 null 或不存在的节点）
+  let rootId = null;
+  for (const [id, node] of Object.entries(mapping)) {
+    if (!node.parent || !mapping[node.parent]) { rootId = id; break; }
+  }
+  if (!rootId) {
+    // 回退：找 client-created-root
+    rootId = Object.keys(mapping).find(id => id.includes('client-created-root') || !mapping[id].parent);
+  }
+
+  // 沿 children 链遍历（有分支取最后一个 child）
+  const path = [];
+  const visited = new Set();
+  let cur = rootId;
+  while (cur && mapping[cur] && !visited.has(cur)) {
+    visited.add(cur);
+    path.push(cur);
+    const children = mapping[cur].children || [];
+    cur = children.length ? children[children.length - 1] : null;
+  }
+
+  // 构建 turns
+  const turns = [];
+  let currentTurn = null;
+
+  for (const nodeId of path) {
+    const node = mapping[nodeId];
+    if (!node || !node.message) continue;
+    const msg = node.message;
+
+    const role = msg.author?.role;
+    const weight = msg.weight;
+    const hidden = msg.metadata?.is_visually_hidden_from_conversation;
+    const ct = msg.content?.content_type;
+
+    if (weight !== 1) continue;
+    if (hidden === true) continue;
+    if (role !== 'user' && role !== 'assistant') continue;
+    if (ct === 'model_editable_context' || ct === 'tether_browsing_display' || ct === 'multimodal_text') continue;
+
+    const block = chatGPTBlockFromMsg(msg);
+    if (!block) continue;
+
+    if (!currentTurn || currentTurn.role !== role) {
+      currentTurn = {
+        role,
+        timestamp: msg.create_time ? formatTimestamp(msg.create_time) : '',
+        blocks: []
+      };
+      turns.push(currentTurn);
+    }
+    currentTurn.blocks.push(block);
+  }
+
+  return { title, metadata: { source: 'ChatGPT', model, date }, turns };
+}
+
+function chatGPTBlockFromMsg(msg) {
+  const ct = msg.content?.content_type;
+
+  if (ct === 'text') {
+    const parts = msg.content.parts || [];
+    const text = parts
+      .map(p => (typeof p === 'string' ? p : (p?.text || '')))
+      .join('\n')
+      .trim();
+    if (!text) return null;
+    return { kind: 'text', content: text };
+  }
+
+  if (ct === 'thoughts') {
+    const thoughts = msg.content.thoughts;
+    if (!thoughts || !thoughts.length) return null;
+    const t = thoughts[0];
+    return { kind: 'thinking', summary: t.summary || '', content: t.content || '' };
+  }
+
+  if (ct === 'reasoning_recap') {
+    const content = msg.content.content || '';
+    if (!content) return null;
+    return { kind: 'recap', content };
+  }
+
+  if (ct === 'code') {
+    const code = msg.content.text || '';
+    const lang = msg.content.language || '';
+    if (!code) return null;
+    return { kind: 'code', language: lang, content: code };
+  }
+
+  return null;
+}
+
+// ── Claude Code 解析器 ────────────────────────────────────────────────────
+
+function parseClaudeCode(rawText) {
+  const lines = rawText.split('\n').filter(l => l.trim());
+  const records = [];
+  for (const line of lines) {
+    try { records.push(JSON.parse(line)); } catch {}
+  }
+
+  // 元信息
+  const aiTitleRec = records.find(r => r.type === 'ai-title');
+  const title = aiTitleRec?.aiTitle || 'Claude Code 会话';
+  const sessionId = records[0]?.sessionId || '';
+
+  // 第一次扫描：建立 tool_use_id → result 映射
+  const toolResultMap = new Map();
+  for (const rec of records) {
+    if (rec.type !== 'user') continue;
+    const content = rec.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const item of content) {
+      if (item.type === 'tool_result' && item.tool_use_id) {
+        let result = '';
+        if (typeof item.content === 'string') result = item.content;
+        else if (Array.isArray(item.content)) {
+          result = item.content.map(c => (typeof c === 'string' ? c : c.text || '')).join('\n');
+        }
+        toolResultMap.set(item.tool_use_id, result);
+      }
+    }
+  }
+
+  // 第二次扫描：按 message.id 分组 assistant 记录
+  const assistantGroups = new Map();
+  const assistantOrder = [];
+  for (const rec of records) {
+    if (rec.type !== 'assistant') continue;
+    const msgId = rec.message?.id;
+    if (!msgId) continue;
+    if (!assistantGroups.has(msgId)) {
+      assistantGroups.set(msgId, []);
+      assistantOrder.push(msgId);
+    }
+    assistantGroups.get(msgId).push(rec);
+  }
+
+  // 构建线性对话流
+  const turns = [];
+  const seenMsgIds = new Set();
+  const seenUserUuids = new Set();
+
+  // 使用文件顺序重建
+  for (const rec of records) {
+    if (rec.type === 'user') {
+      if (seenUserUuids.has(rec.uuid)) continue;
+      seenUserUuids.add(rec.uuid);
+
+      const content = rec.message?.content;
+      if (typeof content !== 'string') continue;
+      if (rec.isMeta) continue;
+
+      const trimmed = content.trim();
+      if (!trimmed) continue;
+      // 过滤系统包装消息
+      if (trimmed.startsWith('<local-command') ||
+          trimmed.startsWith('<command-name') ||
+          trimmed.startsWith('<system-reminder')) continue;
+
+      turns.push({
+        role: 'user',
+        timestamp: rec.timestamp ? formatTimestamp(rec.timestamp) : '',
+        blocks: [{ kind: 'text', content: trimmed }],
+        usage: null
+      });
+    }
+
+    if (rec.type === 'assistant') {
+      const msgId = rec.message?.id;
+      if (!msgId || seenMsgIds.has(msgId)) continue;
+      seenMsgIds.add(msgId);
+
+      const groupRecs = assistantGroups.get(msgId) || [];
+      const turn = buildClaudeTurn(groupRecs, toolResultMap);
+      if (turn) turns.push(turn);
+    }
+  }
+
+  return {
+    title,
+    metadata: { source: 'Claude Code', sessionId: sessionId.slice(0, 8) + '…' },
+    turns
+  };
+}
+
+function buildClaudeTurn(groupRecs, toolResultMap) {
+  const blocks = [];
+  let usage = null;
+  const timestamp = groupRecs[0]?.timestamp ? formatTimestamp(groupRecs[0].timestamp) : '';
+  const model = groupRecs[0]?.message?.model || '';
+
+  for (const rec of groupRecs) {
+    const u = rec.message?.usage;
+    if (!usage && u && u.output_tokens) usage = u;
+
+    const content = rec.message?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const item of content) {
+      if (item.type === 'thinking') {
+        // thinking 内容通常已加密（字段为空字符串）
+        const body = item.thinking && item.thinking.trim()
+          ? item.thinking
+          : '（思考内容已加密存储）';
+        blocks.push({ kind: 'thinking', summary: '', content: body });
+      } else if (item.type === 'text') {
+        const t = item.text?.trim();
+        if (t) blocks.push({ kind: 'text', content: t });
+      } else if (item.type === 'tool_use') {
+        const result = toolResultMap.get(item.id) || null;
+        blocks.push({ kind: 'tool_use', name: item.name || '', input: item.input || {}, result });
+      }
+    }
+  }
+
+  if (!blocks.length) return null;
+
+  return {
+    role: 'assistant',
+    timestamp,
+    model,
+    blocks,
+    usage: usage ? {
+      input: usage.input_tokens,
+      output: usage.output_tokens,
+      cacheRead: usage.cache_read_input_tokens,
+      cacheCreated: usage.cache_creation_input_tokens
+    } : null
+  };
+}
+
+// ── Codex 解析器 ──────────────────────────────────────────────────────────
+
+function parseCodex(rawText) {
+  const lines = rawText.split('\n').filter(l => l.trim());
+  const records = [];
+  for (const line of lines) {
+    try { records.push(JSON.parse(line)); } catch {}
+  }
+
+  // 从 turn_context 提取模型名
+  let model = '';
+  for (const rec of records) {
+    if (rec.type === 'turn_context' && rec.payload?.model) {
+      model = rec.payload.model;
+      break;
+    }
+  }
+
+  // 过滤出 message 类型的 response_item（user / assistant）
+  const msgRecords = records.filter(rec =>
+    rec.type === 'response_item' &&
+    rec.payload?.type === 'message' &&
+    (rec.payload.role === 'user' || rec.payload.role === 'assistant')
+  );
+
+  const turns = [];
+  let currentTurn = null;
+
+  for (const rec of msgRecords) {
+    const role = rec.payload.role;
+    const contentArr = rec.payload.content || [];
+    const phase = rec.payload.phase || '';
+
+    // 提取文本（input_text / output_text）
+    let texts = contentArr
+      .filter(c => c.type === 'input_text' || c.type === 'output_text')
+      .map(c => (c.text || '').trim())
+      .filter(t => t);
+
+    if (!texts.length) continue;
+
+    // 跳过纯环境上下文的用户消息
+    if (role === 'user') {
+      texts = texts.filter(t => !t.startsWith('<environment_context'));
+      if (!texts.length) continue;
+    }
+
+    // 构建 blocks
+    const blocks = [];
+    if (phase && role === 'assistant') {
+      const phaseLabel = { commentary: '分析', action: '执行', plan: '规划' }[phase] || phase;
+      blocks.push({ kind: 'recap', content: phaseLabel });
+    }
+    for (const t of texts) {
+      blocks.push({ kind: 'text', content: t });
+    }
+
+    // 合并连续同角色消息
+    if (!currentTurn || currentTurn.role !== role) {
+      currentTurn = {
+        role,
+        timestamp: rec.timestamp ? formatTimestamp(rec.timestamp) : '',
+        model: role === 'assistant' ? model : '',
+        blocks,
+        usage: null
+      };
+      turns.push(currentTurn);
+    } else {
+      currentTurn.blocks.push(...blocks);
+    }
+  }
+
+  // 用第一条真实用户消息作为标题
+  let title = 'Codex 会话';
+  for (const turn of turns) {
+    if (turn.role === 'user') {
+      const tb = turn.blocks.find(b => b.kind === 'text');
+      if (tb) {
+        title = tb.content.replace(/\n/g, ' ').slice(0, 60);
+        if (tb.content.length > 60) title += '…';
+        break;
+      }
+    }
+  }
+
+  return {
+    title,
+    metadata: { source: 'Codex', model },
+    turns
+  };
+}
+
+// ── 渲染器 ────────────────────────────────────────────────────────────────
+
+function renderConversation(data) {
+  const container = document.getElementById('chat-container');
+  const progress = document.getElementById('render-progress');
+  container.innerHTML = '';
+  container.appendChild(progress);
+
+  // 头部
+  document.getElementById('header-title').textContent = data.title;
+  const metaParts = [data.metadata.source];
+  if (data.metadata.model) metaParts.push(data.metadata.model);
+  if (data.metadata.date) metaParts.push(data.metadata.date);
+  if (data.metadata.sessionId) metaParts.push('session: ' + data.metadata.sessionId);
+  document.getElementById('header-meta').textContent = metaParts.join(' · ');
+  document.getElementById('header').style.display = 'flex';
+  container.style.display = 'block';
+
+  // 分批渲染（避免大文件卡顿）
+  const BATCH = 15;
+  let i = 0;
+
+  function renderBatch() {
+    const end = Math.min(i + BATCH, data.turns.length);
+    for (; i < end; i++) {
+      container.appendChild(buildTurnEl(data.turns[i]));
+    }
+    if (i < data.turns.length) {
+      progress.style.display = 'block';
+      progress.textContent = `渲染中… ${i} / ${data.turns.length}`;
+      requestAnimationFrame(renderBatch);
+    } else {
+      progress.style.display = 'none';
+    }
+  }
+
+  requestAnimationFrame(renderBatch);
+}
+
+function buildTurnEl(turn) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'turn turn-' + turn.role;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+
+  // 元信息行
+  if (turn.timestamp || turn.model) {
+    const meta = document.createElement('div');
+    meta.className = 'turn-meta';
+    if (turn.timestamp) {
+      const ts = document.createElement('span');
+      ts.textContent = turn.timestamp;
+      meta.appendChild(ts);
+    }
+    if (turn.model) {
+      const tag = document.createElement('span');
+      tag.className = 'model-tag';
+      tag.textContent = turn.model;
+      meta.appendChild(tag);
+    }
+    bubble.appendChild(meta);
+  }
+
+  // 内容块
+  for (const block of turn.blocks) {
+    const el = buildBlockEl(block);
+    if (el) bubble.appendChild(el);
+  }
+
+  // Token 用量
+  if (turn.usage) {
+    const bar = document.createElement('div');
+    bar.className = 'usage-bar';
+    const items = [
+      ['输入', fmtNum(turn.usage.input)],
+      ['输出', fmtNum(turn.usage.output)],
+      ['缓存命中', fmtNum(turn.usage.cacheRead)],
+      ['缓存写入', fmtNum(turn.usage.cacheCreated)],
+    ].filter(([, v]) => v !== null);
+    bar.innerHTML = items.map(([k, v]) => `<span class="usage-item"><b>${k}</b> ${v}</span>`).join('');
+    bubble.appendChild(bar);
+  }
+
+  wrapper.appendChild(bubble);
+  return wrapper;
+}
+
+function buildBlockEl(block) {
+  if (block.kind === 'text') {
+    const div = document.createElement('div');
+    div.className = 'md-body';
+    div.innerHTML = renderMarkdown(block.content);
+    return div;
+  }
+
+  if (block.kind === 'thinking') {
+    const summary = block.summary
+      ? `思考过程 — ${block.summary}`
+      : '思考过程';
+    const bodyHtml = `<pre style="white-space:pre-wrap;font-family:inherit;font-size:13px;background:#f9f9fb;color:#444;border-radius:6px;padding:10px">${escapeHtml(block.content)}</pre>`;
+    return makeCollapsible('💭', summary, bodyHtml, false);
+  }
+
+  if (block.kind === 'recap') {
+    const span = document.createElement('span');
+    span.className = 'recap-tag';
+    span.textContent = block.content;
+    return span;
+  }
+
+  if (block.kind === 'code') {
+    const summary = block.language
+      ? `代码块（${block.language}）`
+      : '代码块';
+    const bodyHtml = `<pre><code>${escapeHtml(block.content)}</code></pre>`;
+    return makeCollapsible('📄', summary, bodyHtml, false);
+  }
+
+  if (block.kind === 'tool_use') {
+    const summary = getToolSummary(block.name, block.input);
+    const label = summary ? `${block.name} — ${summary}` : block.name;
+
+    let bodyHtml = `<pre>${escapeHtml(JSON.stringify(block.input, null, 2))}</pre>`;
+    if (block.result !== null && block.result !== undefined) {
+      const resultText = typeof block.result === 'string'
+        ? block.result
+        : JSON.stringify(block.result, null, 2);
+      bodyHtml += `<div class="tool-result"><div class="tool-result-label">返回结果</div><pre style="white-space:pre-wrap;font-size:12px;background:#f5f5f5;color:#333;border-radius:4px;padding:8px;max-height:180px;overflow-y:auto">${escapeHtml(resultText.slice(0, 4000))}${resultText.length > 4000 ? '\n… (已截断)' : ''}</pre></div>`;
+    }
+    return makeCollapsible('🔧', label, bodyHtml, false);
+  }
+
+  return null;
+}
+
+// ── 文件处理 ──────────────────────────────────────────────────────────────
+
+function showLoading(text) {
+  const el = document.getElementById('loading');
+  document.getElementById('loading-text').textContent = text || '处理中…';
+  el.style.display = 'flex';
+}
+
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
+}
+
+function showError(msg) {
+  hideLoading();
+  const el = document.getElementById('error-banner');
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 6000);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  document.getElementById('error-banner').style.display = 'none';
+  showLoading('读取文件中…');
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const content = e.target.result;
+    try {
+      const format = detectFormat(content, file.name);
+      showLoading('解析对话中…');
+
+      // 稍微延迟让 UI 刷新
+      setTimeout(() => {
+        try {
+          let data;
+          if (format === 'chatgpt') {
+            data = parseChatGPT(JSON.parse(content));
+          } else if (format === 'codex') {
+            data = parseCodex(content);
+          } else {
+            data = parseClaudeCode(content);
+          }
+
+          hideLoading();
+          document.getElementById('dropzone-wrapper').style.display = 'none';
+          renderConversation(data);
+        } catch (err) {
+          showError('解析失败：' + err.message);
+        }
+      }, 30);
+    } catch (err) {
+      showError(err.message);
+    }
+  };
+  reader.onerror = () => showError('文件读取失败');
+  reader.readAsText(file, 'utf-8');
+}
+
+// ── 事件绑定 ──────────────────────────────────────────────────────────────
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+
+dropzone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropzone.classList.add('dragover');
+});
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  handleFile(e.dataTransfer.files[0]);
+});
+
+fileInput.addEventListener('change', (e) => {
+  handleFile(e.target.files[0]);
+  e.target.value = '';
+});
+
+document.getElementById('header-reset').addEventListener('click', () => {
+  document.getElementById('chat-container').style.display = 'none';
+  document.getElementById('chat-container').innerHTML = '';
+  document.getElementById('header').style.display = 'none';
+  document.getElementById('dropzone-wrapper').style.display = 'flex';
+});
+</script>
+</body>
+</html>
